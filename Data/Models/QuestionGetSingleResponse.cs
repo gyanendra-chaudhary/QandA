@@ -14,6 +14,5 @@ namespace QandA.Data.Models
         public string UserId { get; set; }
         public DateTime Created { get; set; }
         public IEnumerable<AnswerGetResponse> Answers { get; set; }
-
     }
 }

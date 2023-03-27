@@ -1,3 +1,7 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.HttpsPolicy;
@@ -7,11 +11,13 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.OpenApi.Models;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 using DbUp;
+using QandA.Data;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Authentication;
+using QandA.Authorization;
+using Microsoft.AspNetCore.Authorization;
 
 namespace QandA
 {
@@ -30,22 +36,44 @@ namespace QandA
             var connectionString = Configuration.GetConnectionString("DefaultConnection");
             EnsureDatabase.For.SqlDatabase(connectionString);
             var upgrader = DeployChanges.To
-                .SqlDatabase(connectionString, null)
-                .WithScriptsEmbeddedInAssembly(
-                  System.Reflection.Assembly.GetExecutingAssembly()
-                )
-                .WithTransaction()
-                .Build();
+                    .SqlDatabase(connectionString, null)
+                    .WithScriptsEmbeddedInAssembly(System.Reflection.Assembly.GetExecutingAssembly())
+                    .WithTransaction()
+                    .LogToConsole()
+                    .Build();
+
             if (upgrader.IsUpgradeRequired())
             {
                 upgrader.PerformUpgrade();
             }
 
             services.AddControllers();
+
             services.AddSwaggerGen(c =>
             {
                 c.SwaggerDoc("v1", new OpenApiInfo { Title = "QandA", Version = "v1" });
             });
+
+            services.AddScoped<IDataRepository, DataRepository>();
+            services.AddMemoryCache();
+            services.AddSingleton<IQuestionCache, QuestionCache>();
+
+
+            services.AddAuthentication(options =>
+            {
+                options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+                options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+            }).AddJwtBearer(options =>
+            {
+                options.Authority = Configuration["Auth0:Authority"];
+                options.Audience = Configuration["Auth0:Audience"];
+            });
+            services.AddHttpClient();
+            services.AddAuthorization(options =>
+            {
+            options.AddPolicy("MustBeQuestionAuthor", policy => policy.Requirements.Add(new MustBeQuestionAuthorRequirement())));
+            services.AddScoped<IAuthorizationHandler, MustBeQuestionAuthorRequirement>();
+            services.AddHttpContextAccessor();
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
@@ -61,8 +89,10 @@ namespace QandA
             {
                 app.UseHttpsRedirection();
             }
-            
+
             app.UseRouting();
+
+            app.UseAuthentication();
 
             app.UseAuthorization();
 
